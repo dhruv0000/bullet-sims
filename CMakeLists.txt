@@ -136,3 +136,21 @@ target_link_libraries(example_urdf
     ${X11_LIBRARIES}
     ${CMAKE_DL_LIBS}
 )
+
+# --- Example 3: Gripper Tactile Simulation ---
+add_executable(gripper_tactile 
+    src/gripper_tactile/main.cpp
+    src/gripper_tactile/Gripper.cpp
+    src/gripper_tactile/Finger.cpp
+)
+target_link_libraries(gripper_tactile
+    bullet_helpers
+    BulletDynamics
+    BulletCollision
+    LinearMath
+    Bullet3Common
+    OpenGL::GL
+    Threads::Threads
+    ${X11_LIBRARIES}
+    ${CMAKE_DL_LIBS}
+)
