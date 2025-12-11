@@ -11,7 +11,7 @@ struct TactileData {
 
 class Finger {
 public:
-    Finger(int id, btDiscreteDynamicsWorld* dynamicsWorld, btRigidBody* palm, const btVector3& palmPosition, const btVector3& offset);
+    Finger(int id, btDiscreteDynamicsWorld* dynamicsWorld, btRigidBody* palm, const btVector3& palmPosition, const btVector3& offset, float yaw);
     ~Finger();
 
     void update(float dt);
@@ -21,8 +21,8 @@ public:
     btRigidBody* getPhalanx(int index) { return m_phalanxes[index]; }
 
 private:
-    btRigidBody* createPhalanx(const btVector3& size, float mass, const btVector3& position);
-    void createJoint(int index, btRigidBody* bodyA, btRigidBody* bodyB, const btVector3& pivotInA, const btVector3& pivotInB, const btVector3& axis);
+    btRigidBody* createPhalanx(const btVector3& size, float mass, const btVector3& position, const btQuaternion& rotation);
+    void createJoint(int index, btRigidBody* bodyA, btRigidBody* bodyB, const btTransform& localA, const btTransform& localB);
 
     int m_id;
     btDiscreteDynamicsWorld* m_dynamicsWorld;

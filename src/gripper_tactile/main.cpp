@@ -40,10 +40,11 @@ public:
         btTransform groundTransform;
         groundTransform.setIdentity();
         groundTransform.setOrigin(btVector3(0, -50, 0));
-        createRigidBody(0, groundTransform, groundShape, btVector4(0.5, 0.5, 0.5, 1));
+        btRigidBody* groundBody = createRigidBody(0, groundTransform, groundShape, btVector4(0.5, 0.5, 0.5, 1));
+        groundBody->setFriction(1.0f);
 
         // Object to pickup
-        btBoxShape* objShape = new btBoxShape(btVector3(0.05, 0.05, 0.05));
+        btSphereShape* objShape = new btSphereShape(0.05f);
         m_collisionShapes.push_back(objShape);
         btTransform objTrans;
         objTrans.setIdentity();
@@ -51,7 +52,8 @@ public:
         btScalar mass(0.1f);
         btVector3 localInertia(0, 0, 0);
         objShape->calculateLocalInertia(mass, localInertia);
-        createRigidBody(mass, objTrans, objShape, btVector4(1, 0, 0, 1));
+        btRigidBody* objBody = createRigidBody(mass, objTrans, objShape, btVector4(1, 0, 0, 1));
+        objBody->setFriction(10.0f);
 
         // Gripper
         // Start high above
@@ -79,7 +81,7 @@ public:
                 break;
             case DESCEND:
                 m_gripperPos.setY(m_gripperPos.y() - 0.2f * dt);
-                if (m_gripperPos.y() < 0.23f) { // Target height
+                if (m_gripperPos.y() < 0.19f) { // Target height (Lowered from 0.23)
                     m_state = GRASP;
                     m_stateTime = 0;
                     printf("State: GRASP\n");
@@ -88,7 +90,7 @@ public:
                 break;
             case GRASP:
                 m_gripper->setGrasp(1.0f); // Close
-                if (m_stateTime > 1.0f) { // Wait for grasp
+                if (m_stateTime > 2.0f) { // Wait for grasp (Increased from 1.0)
                     m_state = LIFT;
                     m_stateTime = 0;
                     printf("State: LIFT\n");

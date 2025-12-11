@@ -8,7 +8,7 @@ Gripper::Gripper(btDiscreteDynamicsWorld* world, GUIHelperInterface* helper, con
     // Create two fingers
     // Finger 1 (Left)
     btVector3 f1Pos(-0.15, 0, 0); // Relative to palm center
-    btQuaternion f1Rot(btVector3(0,0,1), 0); // Pointing down/up? Let's assume Y is "out" of palm
+    btQuaternion f1Rot(btVector3(0,0,1), 0); // Let's assume Y is "out" of palm
     // Actually, let's align fingers along Y axis, separated by X.
     
     // Let's rotate fingers so they point towards each other slightly? 
@@ -76,8 +76,6 @@ void Gripper::update(btScalar timeStep) {
 void Gripper::close(btScalar speed) {
     // To close, we would need to actuate the finger base joints.
     // Current implementation has fixed base joints.
-    // We can simulate "closing" by moving the fingers in towards center?
-    // Or just rely on the object being pushed into them.
 }
 
 void Gripper::open(btScalar speed) {

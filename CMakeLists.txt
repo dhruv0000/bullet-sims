@@ -154,3 +154,21 @@ target_link_libraries(gripper_tactile
     ${X11_LIBRARIES}
     ${CMAKE_DL_LIBS}
 )
+
+# --- Verification Script ---
+add_executable(test_gripper
+    src/gripper_tactile/test_gripper.cpp
+    src/gripper_tactile/Gripper.cpp
+    src/gripper_tactile/Finger.cpp
+)
+target_link_libraries(test_gripper
+    bullet_helpers
+    BulletDynamics
+    BulletCollision
+    LinearMath
+    Bullet3Common
+    OpenGL::GL
+    Threads::Threads
+    ${X11_LIBRARIES}
+    ${CMAKE_DL_LIBS}
+)

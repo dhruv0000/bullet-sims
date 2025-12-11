@@ -21,13 +21,34 @@ Gripper::Gripper(btDiscreteDynamicsWorld* dynamicsWorld, const btVector3& positi
     m_dynamicsWorld->addRigidBody(m_palm);
 
     // Create Fingers
-    // Finger 1 (Left)
-    btVector3 offset1(-0.08f, -0.025f, 0); // Relative to palm center
-    m_fingers.push_back(new Finger(0, m_dynamicsWorld, m_palm, position, offset1));
-
-    // Finger 2 (Right)
-    btVector3 offset2(0.08f, -0.025f, 0);
-    m_fingers.push_back(new Finger(1, m_dynamicsWorld, m_palm, position, offset2));
+    float radius = 0.08f;
+    for (int i = 0; i < 3; ++i) {
+        float angle = i * (2.0f * SIMD_PI / 3.0f); // 0, 120, 240 degrees
+        
+        // Calculate offset from palm center
+        // We want the fingers to be arranged in a circle.
+        // Let's say 0 degrees is at +X.
+        // x = r * cos(angle)
+        // z = r * sin(angle)
+        // y = -0.025f (slightly below palm center)
+        
+        float x = radius * cos(angle);
+        float z = radius * sin(angle);
+        btVector3 offset(x, -0.025f, z);
+        
+        // Inside Finger, we rotate around Y by 'yaw'.
+        // If yaw=0, finger is in default orientation.
+        // Default: extends down (-Y). Hinge axis Z. Rotates in X-Y plane.
+        // If we want it to close towards center, we need to think about the hinge rotation.
+        // If hinge rotates +angle, tip moves one way.
+        
+        
+        // Finger 0 (at +X): angle=0. Default orientation.
+        // Finger 1 (at 120 deg): rotated 120 deg around Y.
+        // Finger 2 (at 240 deg): rotated 240 deg around Y.
+        
+        m_fingers.push_back(new Finger(i, m_dynamicsWorld, m_palm, position, offset, -angle));
+    }
 }
 
 Gripper::~Gripper() {
@@ -48,8 +69,6 @@ void Gripper::update(float dt) {
     // Simple interpolation or direct set for kinematic
     // For kinematic, we should update the motion state.
     // Let's just set it directly for now, or interpolate if we want smooth movement.
-    // The physics engine handles velocity if we set it via motion state in stepSimulation? 
-    // Actually for kinematic bodies, we usually update the transform in the motion state before the step.
     
     trans.setOrigin(m_targetPosition);
     m_palm->getMotionState()->setWorldTransform(trans);
@@ -73,14 +92,19 @@ void Gripper::setGrasp(float amount) {
     float targetAngle = amount * (SIMD_PI / 2.0f);
     
     for (auto finger : m_fingers) {
-        // Finger 0 (Left, at -X) needs to rotate CCW (+Z) to move tip +X
-        // Finger 1 (Right, at +X) needs to rotate CW (-Z) to move tip -X
+        // Since fingers are radially symmetric and rotated by their position angle,
+        // a positive joint angle should move them all "inwards" (or outwards depending on definition).
+        // In Finger.cpp, limits are -45 to +45.
+        // Default (0) is straight down.
+        // We want them to curl inwards.
+        // For Finger 0 (at +X, yaw=0), "inwards" is towards -X.
+        // Hinge axis is Z. Rotation around Z.
         
-        // We can check ID or index. Since we iterate, let's assume index 0 is left.
-        // Or better, pass signed angle.
+        // Positive rotation around Z (CCW) moves tip towards +X (Right).
+        // Negative rotation around Z (CW) moves tip towards -X (Left/Center).
+        // Positive angle should move them inwards (based on test results)
         
-        float sign = (finger == m_fingers[0]) ? -1.0f : 1.0f;
-        float angle = targetAngle * sign;
+        float angle = targetAngle;
 
         finger->setJointTarget(0, angle);
         finger->setJointTarget(1, angle);

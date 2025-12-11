@@ -2,7 +2,7 @@
 
 ## 1. Physical Model
 
-The simulation models a robotic gripper with two anthropomorphic fingers.
+The simulation models a robotic gripper with three anthropomorphic fingers arranged 120 degrees apart.
 
 ### Finger Anatomy
 Each finger consists of 3 rigid bodies (phalanxes) connected by joints, mimicking the human finger structure:
@@ -36,7 +36,7 @@ The simulation follows a state machine to perform a pickup task:
 5.  **HOLD**: Gripper holds the object in the air.
 6.  **RELEASE**: Fingers open, dropping the object.
 
-Note: Keep space between two fingers so they can close properly.
+Note: The fingers are arranged in a circle to grasp the object from all sides.
 
 ## 4. Control Interface
 
