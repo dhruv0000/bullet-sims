@@ -1,5 +1,8 @@
 # Gripper Tactile Simulator Logic
 
+![Gripper Simulation](../../examples/example_gripper.png)
+
+
 ## 1. Physical Model
 
 The simulation models a robotic gripper with three anthropomorphic fingers arranged 120 degrees apart.
