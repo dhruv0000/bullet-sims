@@ -79,7 +79,7 @@ void Gripper::setGrasp(float amount) {
         // We can check ID or index. Since we iterate, let's assume index 0 is left.
         // Or better, pass signed angle.
         
-        float sign = (finger == m_fingers[0]) ? 1.0f : -1.0f;
+        float sign = (finger == m_fingers[0]) ? -1.0f : 1.0f;
         float angle = targetAngle * sign;
 
         finger->setJointTarget(0, angle);
