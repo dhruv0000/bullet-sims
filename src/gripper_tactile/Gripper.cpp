@@ -1,94 +1,89 @@
 #include "Gripper.h"
 
-Gripper::Gripper(btDiscreteDynamicsWorld* world, GUIHelperInterface* helper, const btVector3& position)
-    : m_dynamicsWorld(world), m_guiHelper(helper) {
-    
-    createPalm(position);
-    
-    // Create two fingers
-    // Finger 1 (Left)
-    btVector3 f1Pos(-0.15, 0, 0); // Relative to palm center
-    btQuaternion f1Rot(btVector3(0,0,1), 0); // Pointing down/up? Let's assume Y is "out" of palm
-    // Actually, let's align fingers along Y axis, separated by X.
-    
-    // Let's rotate fingers so they point towards each other slightly? 
-    // For now, parallel fingers pointing in Y direction.
-    
-    m_fingers.push_back(new Finger(world, helper, btVector3(-0.1, 0.1, 0), btQuaternion(0,0,0,1), 0));
-    m_fingers.push_back(new Finger(world, helper, btVector3(0.1, 0.1, 0), btQuaternion(0,0,0,1), 1));
-    
-    for (Finger* f : m_fingers) {
-        f->buildFinger(m_palm);
-    }
-}
-
-Gripper::~Gripper() {
-    for (Finger* f : m_fingers) {
-        delete f;
-    }
-    // Palm is managed by world
-}
-
-void Gripper::createPalm(const btVector3& position) {
-    btVector3 halfExtents(0.2, 0.05, 0.1);
-    btCollisionShape* shape = new btBoxShape(halfExtents);
-    
-    btScalar mass = 10.0; // Heavy base
-    btVector3 localInertia(0,0,0);
-    shape->calculateLocalInertia(mass, localInertia);
+Gripper::Gripper(btDiscreteDynamicsWorld* dynamicsWorld, const btVector3& position)
+    : m_dynamicsWorld(dynamicsWorld), m_graspAmount(0.0f), m_targetPosition(position)
+{
+    // Create Palm
+    btVector3 palmSize(0.2f, 0.05f, 0.1f);
+    btCollisionShape* shape = new btBoxShape(palmSize * 0.5f);
     
     btTransform transform;
     transform.setIdentity();
     transform.setOrigin(position);
-    
+
     btDefaultMotionState* motionState = new btDefaultMotionState(transform);
-    btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, motionState, shape, localInertia);
+    btRigidBody::btRigidBodyConstructionInfo rbInfo(0.0f, motionState, shape, btVector3(0,0,0)); // Mass 0 for kinematic
     m_palm = new btRigidBody(rbInfo);
     
-    // Make the palm kinematic so we can control it easily, or just heavy dynamic?
-    // Let's make it Kinematic for absolute control of position if needed, 
-    // OR Dynamic with constraints. 
-    // For simplicity, let's make it a static/kinematic base for now, or just a heavy floating body.
-    // Let's make it KINEMATIC so it stays put unless we move it.
     m_palm->setCollisionFlags(m_palm->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
     m_palm->setActivationState(DISABLE_DEACTIVATION);
-    
+
     m_dynamicsWorld->addRigidBody(m_palm);
+
+    // Create Fingers
+    // Finger 1 (Left)
+    btVector3 offset1(-0.08f, -0.025f, 0); // Relative to palm center
+    m_fingers.push_back(new Finger(0, m_dynamicsWorld, m_palm, position, offset1));
+
+    // Finger 2 (Right)
+    btVector3 offset2(0.08f, -0.025f, 0);
+    m_fingers.push_back(new Finger(1, m_dynamicsWorld, m_palm, position, offset2));
+}
+
+Gripper::~Gripper() {
+    for (auto finger : m_fingers) {
+        delete finger;
+    }
+    m_dynamicsWorld->removeRigidBody(m_palm);
+    delete m_palm->getMotionState();
+    delete m_palm->getCollisionShape();
+    delete m_palm;
+}
+
+void Gripper::update(float dt) {
+    // Move Palm to target
+    btTransform trans;
+    m_palm->getMotionState()->getWorldTransform(trans);
     
-    m_guiHelper->createCollisionShapeGraphicsObject(shape);
-    m_guiHelper->createRigidBodyGraphicsObject(m_palm, btVector4(0.5, 0.5, 0.5, 1));
-}
-
-void Gripper::update(btScalar timeStep) {
-    // Here we could implement grasping logic, e.g. moving fingers closer
-    // Since fingers are attached via fixed constraints to palm, we can't move them relative to palm easily
-    // UNLESS the base constraint in Finger was a slider/motor.
-    // 
-    // In Finger.cpp, we used a Generic6DofConstraint locked at 0.
-    // To actuate, we should have used a slider or updated the constraint frames.
+    // Simple interpolation or direct set for kinematic
+    // For kinematic, we should update the motion state.
+    // Let's just set it directly for now, or interpolate if we want smooth movement.
+    // The physics engine handles velocity if we set it via motion state in stepSimulation? 
+    // Actually for kinematic bodies, we usually update the transform in the motion state before the step.
     
-    // For this simple example, let's just move the whole palm down onto an object, 
-    // or assume the fingers are pre-positioned.
+    trans.setOrigin(m_targetPosition);
+    m_palm->getMotionState()->setWorldTransform(trans);
     
-    // TODO: Implement actuation if needed. For now, static grasp test.
+    // Update Fingers
+    for (auto finger : m_fingers) {
+        finger->update(dt);
+    }
 }
 
-void Gripper::close(btScalar speed) {
-    // To close, we would need to actuate the finger base joints.
-    // Current implementation has fixed base joints.
-    // We can simulate "closing" by moving the fingers in towards center?
-    // Or just rely on the object being pushed into them.
+void Gripper::setTarget(const btVector3& position) {
+    m_targetPosition = position;
 }
 
-void Gripper::open(btScalar speed) {
-}
+void Gripper::setGrasp(float amount) {
+    m_graspAmount = amount;
+    // Map amount (0..1) to joint angles
+    // 0 -> Open (0 degrees or slightly negative)
+    // 1 -> Closed (90 degrees or so)
+    
+    float targetAngle = amount * (SIMD_PI / 2.0f);
+    
+    for (auto finger : m_fingers) {
+        // Finger 0 (Left, at -X) needs to rotate CCW (+Z) to move tip +X
+        // Finger 1 (Right, at +X) needs to rotate CW (-Z) to move tip -X
+        
+        // We can check ID or index. Since we iterate, let's assume index 0 is left.
+        // Or better, pass signed angle.
+        
+        float sign = (finger == m_fingers[0]) ? 1.0f : -1.0f;
+        float angle = targetAngle * sign;
 
-void Gripper::printTactileData() {
-    std::cout << "--- Tactile Data ---" << std::endl;
-    for (int i=0; i<m_fingers.size(); ++i) {
-        btVector3 f = m_fingers[i]->getForces();
-        btVector3 t = m_fingers[i]->getTorques();
-        printf("Finger %d: F(%.2f, %.2f, %.2f) T(%.2f, %.2f, %.2f)\n", 
-               i, f.x(), f.y(), f.z(), t.x(), t.y(), t.z());
+        finger->setJointTarget(0, angle);
+        finger->setJointTarget(1, angle);
+        finger->setJointTarget(2, angle);
     }
 }

@@ -2,32 +2,29 @@
 #define GRIPPER_H
 
 #include "Finger.h"
+#include "btBulletDynamicsCommon.h"
+#include <vector>
 
 class Gripper {
 public:
-    Gripper(btDiscreteDynamicsWorld* world, GUIHelperInterface* helper, const btVector3& position);
-    virtual ~Gripper();
+    Gripper(btDiscreteDynamicsWorld* dynamicsWorld, const btVector3& position);
+    ~Gripper();
 
-    void update(btScalar timeStep);
-    
-    // Control
-    void close(btScalar speed);
-    void open(btScalar speed);
-    
-    // Data
-    void printTactileData();
+    void update(float dt);
+    void setTarget(const btVector3& position);
+    void setGrasp(float amount); // 0.0 (open) to 1.0 (closed)
+
+    Finger* getFinger(int index) { return m_fingers[index]; }
+    btRigidBody* getPalm() { return m_palm; }
 
 private:
     btDiscreteDynamicsWorld* m_dynamicsWorld;
-    GUIHelperInterface* m_guiHelper;
-    
     btRigidBody* m_palm;
     std::vector<Finger*> m_fingers;
-    
-    btScalar m_currentGraspWidth;
-    
-    // Helper to create the palm
-    void createPalm(const btVector3& position);
+
+    // State
+    float m_graspAmount;
+    btVector3 m_targetPosition;
 };
 
 #endif // GRIPPER_H

@@ -1,141 +1,118 @@
 #include "Finger.h"
+#include <iostream>
 
-Finger::Finger(btDiscreteDynamicsWorld* world, GUIHelperInterface* helper, 
-               const btVector3& basePos, const btQuaternion& baseRot, int fingerIndex)
-    : m_dynamicsWorld(world), m_guiHelper(helper), 
-      m_basePos(basePos), m_baseRot(baseRot), m_fingerIndex(fingerIndex) {
+Finger::Finger(int id, btDiscreteDynamicsWorld* dynamicsWorld, btRigidBody* palm, const btVector3& palmPosition, const btVector3& offset)
+    : m_id(id), m_dynamicsWorld(dynamicsWorld)
+{
+    btVector3 startPos = palmPosition + offset;
+    
+    // Create Phalanxes
+    // Proximal
+    btVector3 proximalPos = startPos + btVector3(0, -m_phalanxLengths[0]/2.0, 0); // Extending down
+    btRigidBody* proximal = createPhalanx(btVector3(m_phalanxWidth, m_phalanxLengths[0], m_phalanxHeight), m_phalanxMass, proximalPos);
+    m_phalanxes.push_back(proximal);
+
+    // Intermediate
+    btVector3 intermediatePos = proximalPos + btVector3(0, -m_phalanxLengths[0]/2.0 - m_phalanxLengths[1]/2.0, 0);
+    btRigidBody* intermediate = createPhalanx(btVector3(m_phalanxWidth, m_phalanxLengths[1], m_phalanxHeight), m_phalanxMass, intermediatePos);
+    m_phalanxes.push_back(intermediate);
+
+    // Distal
+    btVector3 distalPos = intermediatePos + btVector3(0, -m_phalanxLengths[1]/2.0 - m_phalanxLengths[2]/2.0, 0);
+    btRigidBody* distal = createPhalanx(btVector3(m_phalanxWidth, m_phalanxLengths[2], m_phalanxHeight), m_phalanxMass, distalPos);
+    m_phalanxes.push_back(distal);
+
+    // Create Joints
+    btVector3 axis(0, 0, 1); // Hinge axis Z (Rotate in X-Y plane)
+
+    // MCP (Palm <-> Proximal)
+    // Pivot in Palm: offset
+    // Pivot in Proximal: top center (0, length/2, 0)
+    createJoint(0, palm, proximal, offset, btVector3(0, m_phalanxLengths[0]/2.0, 0), axis);
+
+    // PIP (Proximal <-> Intermediate)
+    // Pivot in Proximal: bottom center (0, -length/2, 0)
+    // Pivot in Intermediate: top center (0, length/2, 0)
+    createJoint(1, proximal, intermediate, btVector3(0, -m_phalanxLengths[0]/2.0, 0), btVector3(0, m_phalanxLengths[1]/2.0, 0), axis);
+
+    // DIP (Intermediate <-> Distal)
+    createJoint(2, intermediate, distal, btVector3(0, -m_phalanxLengths[1]/2.0, 0), btVector3(0, m_phalanxLengths[2]/2.0, 0), axis);
 }
 
 Finger::~Finger() {
-    // Cleanup is handled by the world usually, but good practice to have destructors
-}
-
-void Finger::buildFinger(btRigidBody* parentBody) {
-    // 1. Create the base link (the sensor point)
-    // We attach this to the parent body (the gripper palm) via a fixed constraint 
-    // that acts as our force sensor.
-    
-    btTransform parentTrans = parentBody->getWorldTransform();
-    btTransform localTrans(m_baseRot, m_basePos);
-    btTransform startTrans = parentTrans * localTrans;
-    
-    btVector3 halfExtents(m_linkRadius, m_linkLength/2.0, m_linkRadius);
-    
-    // Create the first link (Base)
-    m_base = createLink(startTrans, halfExtents);
-    m_links.push_back(m_base);
-    
-    // Create the sensor constraint (Fixed constraint between parent and base)
-    // We use a 6DOF constraint to measure forces, but lock all axes.
-    btTransform frameInParent = localTrans;
-    btTransform frameInBase = btTransform::getIdentity();
-    
-    m_baseConstraint = new btGeneric6DofConstraint(*parentBody, *m_base, frameInParent, frameInBase, true);
-    
-    // Lock all linear and angular motion
-    m_baseConstraint->setLinearLowerLimit(btVector3(0,0,0));
-    m_baseConstraint->setLinearUpperLimit(btVector3(0,0,0));
-    m_baseConstraint->setAngularLowerLimit(btVector3(0,0,0));
-    m_baseConstraint->setAngularUpperLimit(btVector3(0,0,0));
-    
-    // Enable feedback
-    m_baseConstraint->setJointFeedback(new btJointFeedback());
-    m_dynamicsWorld->addConstraint(m_baseConstraint, true);
-    m_constraints.push_back(m_baseConstraint);
-    
-    // 2. Create the rest of the chain
-    btRigidBody* prevBody = m_base;
-    btTransform prevTrans = startTrans;
-    
-    for (int i = 1; i < m_numLinks; ++i) {
-        // Next link position relative to previous
-        // Shift along Y axis (assuming finger points along Y)
-        btTransform offsetTrans;
-        offsetTrans.setIdentity();
-        offsetTrans.setOrigin(btVector3(0, m_linkLength + 0.02, 0)); // Small gap
-        
-        btTransform currentTrans = prevTrans * offsetTrans;
-        
-        btRigidBody* link = createLink(currentTrans, halfExtents);
-        m_links.push_back(link);
-        
-        // Spring constraint between links
-        btTransform frameInPrev; 
-        frameInPrev.setIdentity();
-        frameInPrev.setOrigin(btVector3(0, m_linkLength/2.0 + 0.01, 0));
-        
-        btTransform frameInCurr;
-        frameInCurr.setIdentity();
-        frameInCurr.setOrigin(btVector3(0, -m_linkLength/2.0 - 0.01, 0));
-        
-        btGeneric6DofSpringConstraint* spring = new btGeneric6DofSpringConstraint(
-            *prevBody, *link, frameInPrev, frameInCurr, true);
-            
-        // Lock linear motion
-        spring->setLinearLowerLimit(btVector3(0,0,0));
-        spring->setLinearUpperLimit(btVector3(0,0,0));
-        
-        // Allow some angular motion with springs
-        spring->setAngularLowerLimit(btVector3(-SIMD_PI/4, -SIMD_PI/4, -SIMD_PI/4));
-        spring->setAngularUpperLimit(btVector3(SIMD_PI/4, SIMD_PI/4, SIMD_PI/4));
-        
-        // Enable springs on angular axes (3, 4, 5)
-        for(int axis=3; axis<6; ++axis) {
-            spring->enableSpring(axis, true);
-            spring->setStiffness(axis, m_stiffness);
-            spring->setDamping(axis, m_damping);
-            spring->setEquilibriumPoint(axis, 0);
-        }
-        
-        m_dynamicsWorld->addConstraint(spring, true);
-        m_constraints.push_back(spring);
-        
-        prevBody = link;
-        prevTrans = currentTrans;
+    for (auto feedback : m_feedbacks) {
+        delete feedback;
+    }
+    for (auto constraint : m_joints) {
+        m_dynamicsWorld->removeConstraint(constraint);
+        delete constraint;
+    }
+    for (auto body : m_phalanxes) {
+        m_dynamicsWorld->removeRigidBody(body);
+        delete body->getMotionState();
+        delete body->getCollisionShape();
+        delete body;
     }
 }
 
-btRigidBody* Finger::createLink(const btTransform& transform, const btVector3& halfExtents) {
-    btCollisionShape* shape = new btBoxShape(halfExtents);
-    // Alternatively use Capsule for smoother contact
-    // btCollisionShape* shape = new btCapsuleShape(halfExtents.x(), halfExtents.y()*2);
-    
-    btScalar mass = m_mass;
-    btVector3 localInertia(0,0,0);
+void Finger::update(float dt) {
+    // Update logic if needed
+}
+
+void Finger::setJointTarget(int jointIndex, float angle) {
+    if (jointIndex >= 0 && jointIndex < m_joints.size()) {
+        btHingeConstraint* hinge = m_joints[jointIndex];
+        // Simple P-control for servo behavior
+        float currentAngle = hinge->getHingeAngle();
+        float error = angle - currentAngle;
+        float targetVelocity = error * 10.0f; // Gain
+        float maxImpulse = 10.0f; // Compliance/Strength
+        hinge->enableAngularMotor(true, targetVelocity, maxImpulse);
+    }
+}
+
+TactileData Finger::getTactileData(int jointIndex) {
+    TactileData data;
+    data.force = btVector3(0, 0, 0);
+    data.torque = btVector3(0, 0, 0);
+
+    if (jointIndex >= 0 && jointIndex < m_feedbacks.size()) {
+        btJointFeedback* fb = m_feedbacks[jointIndex];
+        // Force applied on Body B (the phalanx) by Body A (parent)
+        data.force = fb->m_appliedForceBodyB;
+        data.torque = fb->m_appliedTorqueBodyB;
+    }
+    return data;
+}
+
+btRigidBody* Finger::createPhalanx(const btVector3& size, float mass, const btVector3& position) {
+    btCollisionShape* shape = new btBoxShape(size * 0.5f); // Box half extents
+    btTransform transform;
+    transform.setIdentity();
+    transform.setOrigin(position);
+
+    btVector3 localInertia(0, 0, 0);
     shape->calculateLocalInertia(mass, localInertia);
-    
+
     btDefaultMotionState* motionState = new btDefaultMotionState(transform);
     btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, motionState, shape, localInertia);
     btRigidBody* body = new btRigidBody(rbInfo);
-    
-    body->setFriction(1.0); // High friction for gripping
-    
+
     m_dynamicsWorld->addRigidBody(body);
-    
-    // Visuals
-    int colorIndex = m_fingerIndex % 4;
-    btVector4 color;
-    if (colorIndex == 0) color = btVector4(1,0,0,1);
-    else if (colorIndex == 1) color = btVector4(0,1,0,1);
-    else if (colorIndex == 2) color = btVector4(0,0,1,1);
-    else color = btVector4(1,1,0,1);
-    
-    m_guiHelper->createCollisionShapeGraphicsObject(shape);
-    m_guiHelper->createRigidBodyGraphicsObject(body, color);
-    
     return body;
 }
 
-btVector3 Finger::getForces() {
-    if (m_baseConstraint && m_baseConstraint->getJointFeedback()) {
-        return m_baseConstraint->getJointFeedback()->m_appliedForceBodyA;
-    }
-    return btVector3(0,0,0);
-}
+void Finger::createJoint(int index, btRigidBody* bodyA, btRigidBody* bodyB, const btVector3& pivotInA, const btVector3& pivotInB, const btVector3& axis) {
+    btHingeConstraint* hinge = new btHingeConstraint(*bodyA, *bodyB, pivotInA, pivotInB, axis, axis);
+    
+    // Limits
+    hinge->setLimit(-SIMD_PI * 0.25f, SIMD_PI * 0.25f); // Example limits
 
-btVector3 Finger::getTorques() {
-    if (m_baseConstraint && m_baseConstraint->getJointFeedback()) {
-        return m_baseConstraint->getJointFeedback()->m_appliedTorqueBodyA;
-    }
-    return btVector3(0,0,0);
+    // Feedback
+    btJointFeedback* feedback = new btJointFeedback();
+    m_feedbacks.push_back(feedback);
+    hinge->setJointFeedback(feedback);
+
+    m_dynamicsWorld->addConstraint(hinge, true);
+    m_joints.push_back(hinge);
 }

@@ -1,131 +1,157 @@
-#include "CommonInterfaces/CommonExampleInterface.h"
-#include "CommonInterfaces/CommonGUIHelperInterface.h"
-#include "OpenGLWindow/SimpleOpenGL3App.h"
-#include "ExampleBrowser/OpenGLGuiHelper.h"
-#include "BulletCollision/CollisionDispatch/btGhostObject.h"
-#include "BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h"
+#include "CommonInterfaces/CommonRigidBodyBase.h"
 #include "Utils/b3Clock.h"
-#include "SharedMemory/SharedMemoryPublic.h"
-
 #include "Gripper.h"
-
 #include <iostream>
 
-class GripperSim : public CommonExampleInterface {
-    CommonGraphicsApp* m_app;
-    GUIHelperInterface* m_guiHelper;
-    btDiscreteDynamicsWorld* m_dynamicsWorld;
-    btBroadphaseInterface* m_broadphase;
-    btCollisionDispatcher* m_dispatcher;
-    btConstraintSolver* m_solver;
-    btDefaultCollisionConfiguration* m_collisionConfiguration;
-    
-    Gripper* m_gripper;
-    btRigidBody* m_targetObject;
-    
-    btScalar m_time;
+enum State {
+    IDLE,
+    DESCEND,
+    GRASP,
+    LIFT,
+    HOLD,
+    RELEASE
+};
 
+class GripperTactileExample : public CommonRigidBodyBase
+{
 public:
-    GripperSim(GUIHelperInterface* helper) : m_guiHelper(helper), m_time(0) {
-        m_app = helper->getAppInterface();
+    GripperTactileExample(struct GUIHelperInterface* helper)
+        : CommonRigidBodyBase(helper), m_gripper(nullptr), m_state(IDLE), m_stateTime(0)
+    {
     }
-    
-    virtual ~GripperSim() {
+    virtual ~GripperTactileExample() {
         delete m_gripper;
-        exitPhysics();
     }
-    
-    void initPhysics() override {
-        m_guiHelper->setUpAxis(1); // Y is up
-        
-        m_collisionConfiguration = new btDefaultCollisionConfiguration();
-        m_dispatcher = new btCollisionDispatcher(m_collisionConfiguration);
-        m_broadphase = new btDbvtBroadphase();
-        m_solver = new btSequentialImpulseConstraintSolver();
-        
-        m_dynamicsWorld = new btDiscreteDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_collisionConfiguration);
+
+    virtual void initPhysics()
+    {
+        m_guiHelper->setUpAxis(1);
+
+        createEmptyDynamicsWorld();
         m_dynamicsWorld->setGravity(btVector3(0, -9.8, 0));
-        
         m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
+
+        if (m_dynamicsWorld->getDebugDrawer())
+            m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawWireframe + btIDebugDraw::DBG_DrawContactPoints);
+
+        // Ground
+        btBoxShape* groundShape = new btBoxShape(btVector3(btScalar(50.), btScalar(50.), btScalar(50.)));
+        m_collisionShapes.push_back(groundShape);
+        btTransform groundTransform;
+        groundTransform.setIdentity();
+        groundTransform.setOrigin(btVector3(0, -50, 0));
+        createRigidBody(0, groundTransform, groundShape, btVector4(0.5, 0.5, 0.5, 1));
+
+        // Object to pickup
+        btBoxShape* objShape = new btBoxShape(btVector3(0.05, 0.05, 0.05));
+        m_collisionShapes.push_back(objShape);
+        btTransform objTrans;
+        objTrans.setIdentity();
+        objTrans.setOrigin(btVector3(0, 0.05, 0)); // On ground
+        btScalar mass(0.1f);
+        btVector3 localInertia(0, 0, 0);
+        objShape->calculateLocalInertia(mass, localInertia);
+        createRigidBody(mass, objTrans, objShape, btVector4(1, 0, 0, 1));
+
+        // Gripper
+        // Start high above
+        m_gripperPos = btVector3(0, 0.5, 0);
+        m_gripper = new Gripper(m_dynamicsWorld, m_gripperPos);
+
+        m_guiHelper->autogenerateGraphicsObjects(m_dynamicsWorld);
+    }
+
+    virtual void stepSimulation(float dt)
+    {
+        CommonRigidBodyBase::stepSimulation(dt);
         
-        // Create Ground
-        {
-            btCollisionShape* groundShape = new btBoxShape(btVector3(50, 1, 50));
-            btTransform groundTransform;
-            groundTransform.setIdentity();
-            groundTransform.setOrigin(btVector3(0, -2, 0));
-            
-            btScalar mass = 0;
-            btDefaultMotionState* myMotionState = new btDefaultMotionState(groundTransform);
-            btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, myMotionState, groundShape, btVector3(0, 0, 0));
-            btRigidBody* body = new btRigidBody(rbInfo);
-            m_dynamicsWorld->addRigidBody(body);
-            
-            m_guiHelper->createCollisionShapeGraphicsObject(groundShape);
-            m_guiHelper->createRigidBodyGraphicsObject(body, btVector4(0.8, 0.8, 0.8, 1));
+        m_stateTime += dt;
+        m_gripper->update(dt);
+
+        // State Machine
+        switch (m_state) {
+            case IDLE:
+                if (m_stateTime > 1.0f) {
+                    m_state = DESCEND;
+                    m_stateTime = 0;
+                    printf("State: DESCEND\n");
+                }
+                break;
+            case DESCEND:
+                m_gripperPos.setY(m_gripperPos.y() - 0.2f * dt);
+                if (m_gripperPos.y() < 0.23f) { // Target height
+                    m_state = GRASP;
+                    m_stateTime = 0;
+                    printf("State: GRASP\n");
+                }
+                m_gripper->setTarget(m_gripperPos);
+                break;
+            case GRASP:
+                m_gripper->setGrasp(1.0f); // Close
+                if (m_stateTime > 1.0f) { // Wait for grasp
+                    m_state = LIFT;
+                    m_stateTime = 0;
+                    printf("State: LIFT\n");
+                }
+                break;
+            case LIFT:
+                m_gripperPos.setY(m_gripperPos.y() + 0.2f * dt);
+                if (m_gripperPos.y() > 0.5f) {
+                    m_state = HOLD;
+                    m_stateTime = 0;
+                    printf("State: HOLD\n");
+                }
+                m_gripper->setTarget(m_gripperPos);
+                break;
+            case HOLD:
+                if (m_stateTime > 2.0f) {
+                    m_state = RELEASE;
+                    m_stateTime = 0;
+                    printf("State: RELEASE\n");
+                }
+                break;
+            case RELEASE:
+                m_gripper->setGrasp(0.0f); // Open
+                if (m_stateTime > 1.0f) {
+                    m_state = IDLE;
+                    m_stateTime = 0;
+                    printf("State: IDLE\n");
+                }
+                break;
         }
-        
-        // Create Gripper
-        m_gripper = new Gripper(m_dynamicsWorld, m_guiHelper, btVector3(0, 2, 0));
-        
-        // Create Target Object
-        {
-            btCollisionShape* shape = new btSphereShape(0.15);
-            btTransform transform;
-            transform.setIdentity();
-            transform.setOrigin(btVector3(0, 2.3, 0)); // Between fingers
-            
-            btScalar mass = 1.0;
-            btVector3 localInertia(0, 0, 0);
-            shape->calculateLocalInertia(mass, localInertia);
-            
-            btDefaultMotionState* motionState = new btDefaultMotionState(transform);
-            btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, motionState, shape, localInertia);
-            m_targetObject = new btRigidBody(rbInfo);
-            
-            m_dynamicsWorld->addRigidBody(m_targetObject);
-            
-            m_guiHelper->createCollisionShapeGraphicsObject(shape);
-            m_guiHelper->createRigidBodyGraphicsObject(m_targetObject, btVector4(0, 0, 1, 1));
+
+        // Print Tactile Data occasionally
+        static float printTimer = 0;
+        printTimer += dt;
+        if (printTimer > 0.5f) {
+            printTimer = 0;
+            TactileData data = m_gripper->getFinger(0)->getTactileData(2); // Distal joint of finger 0
+            printf("F0 Distal Force: %.2f, %.2f, %.2f\n", data.force.x(), data.force.y(), data.force.z());
         }
     }
-    
-    void exitPhysics() override {
-        delete m_dynamicsWorld;
-        delete m_solver;
-        delete m_broadphase;
-        delete m_dispatcher;
-        delete m_collisionConfiguration;
-    }
-    
-    void stepSimulation(float deltaTime) override {
-        m_dynamicsWorld->stepSimulation(deltaTime);
-        m_time += deltaTime;
-        
-        // Log data every 60 steps (approx 1 sec if 60Hz)
-        static int counter = 0;
-        if (counter++ % 60 == 0) {
-            m_gripper->printTactileData();
-        }
-    }
-    
-    void renderScene() override {
-        m_dynamicsWorld->debugDrawWorld();
-    }
-    
-    void physicsDebugDraw(int debugFlags) override {
-        m_dynamicsWorld->debugDrawWorld();
-    }
-    
-    bool mouseMoveCallback(float x, float y) override { return false; }
-    bool mouseButtonCallback(int button, int state, float x, float y) override { return false; }
-    bool keyboardCallback(int key, int state) override { return false; }
-    
-    void resetCamera() override {
-        float dist = 4;
-        float pitch = -30;
-        float yaw = 0;
-        float targetPos[3] = {0, 2, 0};
+
+private:
+    Gripper* m_gripper;
+    State m_state;
+    float m_stateTime;
+    btVector3 m_gripperPos;
+};
+
+#include "CommonInterfaces/CommonExampleInterface.h"
+#include "CommonInterfaces/CommonGUIHelperInterface.h"
+#include "SharedMemory/SharedMemoryPublic.h"
+#include "OpenGLWindow/SimpleOpenGL3App.h"
+#include "ExampleBrowser/OpenGLGuiHelper.h"
+
+class GripperTactileExampleWithCamera : public GripperTactileExample {
+public:
+    GripperTactileExampleWithCamera(struct GUIHelperInterface* helper) : GripperTactileExample(helper) {}
+    virtual void resetCamera()
+    {
+        float dist = 0.8f;
+        float pitch = -20;
+        float yaw = 0; // Rotated 90 degrees right from 90
+        float targetPos[3] = {0, 0.2, 0};
         m_guiHelper->resetCamera(dist, yaw, pitch, targetPos[0], targetPos[1], targetPos[2]);
     }
 };
@@ -138,7 +164,7 @@ int main(int argc, char* argv[])
     gui.setVisualizerFlag(COV_ENABLE_GUI, false);
 
     CommonExampleOptions options(&gui);
-    GripperSim* example = new GripperSim(&gui);
+    GripperTactileExampleWithCamera* example = new GripperTactileExampleWithCamera(&gui);
 
     example->initPhysics();
     example->resetCamera();
@@ -151,8 +177,8 @@ int main(int argc, char* argv[])
         app->m_instancingRenderer->updateCamera(app->getUpAxis());
 
         btScalar dtSec = btScalar(clock.getTimeInSeconds());
-        if (dtSec < 0.1)
-            dtSec = 0.1;
+        if (dtSec < 0.001f) dtSec = 0.001f; // Min step
+        if (dtSec > 0.1f) dtSec = 0.1f; // Max step
 
         example->stepSimulation(dtSec);
         clock.reset();

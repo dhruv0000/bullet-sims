@@ -2,53 +2,40 @@
 #define FINGER_H
 
 #include "btBulletDynamicsCommon.h"
-#include "Bullet3Common/b3AlignedObjectArray.h"
-#include "btBulletDynamicsCommon.h"
-#include "Bullet3Common/b3AlignedObjectArray.h"
-#include "CommonInterfaces/CommonGUIHelperInterface.h"
-
 #include <vector>
-#include <iostream>
+
+struct TactileData {
+    btVector3 force;
+    btVector3 torque;
+};
 
 class Finger {
 public:
-    Finger(btDiscreteDynamicsWorld* world, GUIHelperInterface* helper, 
-           const btVector3& basePos, const btQuaternion& baseRot, int fingerIndex);
-    virtual ~Finger();
+    Finger(int id, btDiscreteDynamicsWorld* dynamicsWorld, btRigidBody* palm, const btVector3& palmPosition, const btVector3& offset);
+    ~Finger();
 
-    void buildFinger(btRigidBody* parentBody);
-    
-    // Tactile data extraction
-    btVector3 getForces();
-    btVector3 getTorques();
-    
-    // Accessors
-    btRigidBody* getBase() { return m_base; }
+    void update(float dt);
+    void setJointTarget(int jointIndex, float angle);
+    TactileData getTactileData(int jointIndex);
+
+    btRigidBody* getPhalanx(int index) { return m_phalanxes[index]; }
 
 private:
+    btRigidBody* createPhalanx(const btVector3& size, float mass, const btVector3& position);
+    void createJoint(int index, btRigidBody* bodyA, btRigidBody* bodyB, const btVector3& pivotInA, const btVector3& pivotInB, const btVector3& axis);
+
+    int m_id;
     btDiscreteDynamicsWorld* m_dynamicsWorld;
-    GUIHelperInterface* m_guiHelper;
     
-    int m_fingerIndex;
-    btVector3 m_basePos; // Relative to parent
-    btQuaternion m_baseRot; // Relative to parent
-    
-    btRigidBody* m_base;
-    btGeneric6DofConstraint* m_baseConstraint; // The sensor constraint
-    
-    btAlignedObjectArray<btRigidBody*> m_links;
-    btAlignedObjectArray<btTypedConstraint*> m_constraints;
-    
+    std::vector<btRigidBody*> m_phalanxes; // 0: Proximal, 1: Intermediate, 2: Distal
+    std::vector<btHingeConstraint*> m_joints; // 0: MCP, 1: PIP, 2: DIP
+    std::vector<btJointFeedback*> m_feedbacks;
+
     // Configuration
-    int m_numLinks = 5;
-    btScalar m_linkLength = 0.2;
-    btScalar m_linkRadius = 0.05;
-    btScalar m_stiffness = 100.0;
-    btScalar m_damping = 5.0;
-    btScalar m_mass = 0.1;
-    
-    // Helper to create a link body
-    btRigidBody* createLink(const btTransform& transform, const btVector3& halfExtents);
+    float m_phalanxLengths[3] = {0.08f, 0.06f, 0.04f};
+    float m_phalanxWidth = 0.03f;
+    float m_phalanxHeight = 0.03f;
+    float m_phalanxMass = 0.05f;
 };
 
 #endif // FINGER_H
