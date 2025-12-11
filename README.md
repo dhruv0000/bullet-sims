@@ -14,7 +14,7 @@ This project provides a boilerplate for creating physics simulations using the B
 
 1.  Clone the repository with submodules:
     ```bash
-    git clone --recursive <repo_url>
+    git clone git@github.com:dhruv0000/bullet-sims.git
     cd bullet-sims
     ```
     If you already cloned without submodules:
