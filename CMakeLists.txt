@@ -22,6 +22,11 @@ set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "Build Bullet2 Demos" FORCE)
 set(BUILD_EXTRAS ON CACHE BOOL "Build Extras" FORCE) # Needed for Serialize/etc
 set(BUILD_UNIT_TESTS OFF CACHE BOOL "Build Unit Tests" FORCE)
 
+# Linux fix
+if(UNIX AND NOT APPLE)
+    add_definitions(-D_LINUX)
+endif()
+
 add_subdirectory(external/bullet3)
 
 # Find OpenGL
@@ -29,6 +34,8 @@ find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 find_package(X11 REQUIRED)
 # find_package(GLEW REQUIRED) # Use bundled GLEW instead
+
+
 
 # Include Directories
 include_directories(

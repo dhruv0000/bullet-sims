@@ -75,6 +75,7 @@ public:
 
 #include "CommonInterfaces/CommonExampleInterface.h"
 #include "CommonInterfaces/CommonGUIHelperInterface.h"
+#include "CommonInterfaces/CommonCameraInterface.h"
 #include "SharedMemory/SharedMemoryPublic.h"
 #include "OpenGLWindow/SimpleOpenGL3App.h"
 #include "ExampleBrowser/OpenGLGuiHelper.h"
@@ -96,6 +97,10 @@ int main(int argc, char* argv[])
 
 	do
 	{
+		static float yaw = 0;
+		yaw += 4.0f;
+		app->m_instancingRenderer->getActiveCamera()->setCameraYaw(yaw);
+
 		app->m_instancingRenderer->init();
 		app->m_instancingRenderer->updateCamera(app->getUpAxis());
 

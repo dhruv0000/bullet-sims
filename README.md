@@ -33,18 +33,19 @@ This project provides a boilerplate for creating physics simulations using the B
 ## Examples
 
 ### Example 1 & 2: Basic Simulation & URDF Simulation
+
 A simple simulation with a ground plane and a falling box.
 ```bash
-./bin/example_basic
+./build/bin/example_basic
 ```
 
 Loads a URDF file (R2D2) and simulates it.
-**Note**: You need to provide the `r2d2.urdf` file in the working directory or update the path in the code.
+**Note**: You need to provide the `r2d2.urdf` file in the working directory or run it from root folder like shown below.
 For testing, you can copy it from the bullet3 submodule:
 ```bash
-cp ../external/bullet3/data/r2d2.urdf .
-./bin/example_urdf
+./build/bin/example_urdf
 ```
+
 
 ## Adding New Simulations
 
